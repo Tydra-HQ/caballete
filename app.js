@@ -194,7 +194,7 @@ async function vFavoritas() {
 
 async function vArtista(slug) {
   cargando();
-  const ra = await sb.from('artistas').select('*').eq('slug', slug).maybeSingle();
+  const ra = await sb.from('artistas').select('id,user_id,slug,nombre,lineas,bio,instagram,avatar_url,activo').eq('slug', slug).maybeSingle();
   if (ra.error) throw ra.error;
   if (!ra.data) { $app.innerHTML = '<p class="wrap vacio">No encontramos a este artista.</p>'; return; }
   const a = ra.data;
@@ -296,8 +296,10 @@ function dlgConsulta(a, o) {
   d.querySelector('form').onsubmit = async (e) => {
     e.preventDefault();
     const b = e.submitter; b.disabled = true;
-    const { error } = await sb.from('consultas').insert({ artista_id: a.id, obra_id: o ? o.id : null, nombre: d.querySelector('#cn').value.trim(), email: d.querySelector('#ce').value.trim(), mensaje: d.querySelector('#cm').value.trim() });
+    const cid = crypto.randomUUID();
+    const { error } = await sb.from('consultas').insert({ id: cid, artista_id: a.id, obra_id: o ? o.id : null, nombre: d.querySelector('#cn').value.trim(), email: d.querySelector('#ce').value.trim(), mensaje: d.querySelector('#cm').value.trim() });
     if (error) { b.disabled = false; const p = d.querySelector('[data-err]'); p.hidden = false; p.textContent = 'No se pudo enviar. Revisá los datos y probá de nuevo.'; return; }
+    sb.functions.invoke('avisar-consulta', { body: { id: cid } }).catch(() => {});
     d.querySelector('form').innerHTML = `<div class="ok" style="padding:24px 0"><h2 style="font-size:30px">Consulta enviada</h2><p class="muted" style="margin:0">${esc(a.nombre)} la va a ver en su taller.</p><button class="btn btn-linea" type="button" onclick="this.closest('dialog').close()">Listo</button></div>`;
   };
 }
@@ -308,7 +310,7 @@ async function miArtista() {
   if (S.miArtista !== undefined) return S.miArtista;
   const { data: id } = await sb.rpc('vincular_artista');
   if (!id) { S.miArtista = null; return null; }
-  const { data } = await sb.from('artistas').select('*').eq('id', id).single();
+  const { data } = await sb.from('artistas').select('id,user_id,slug,nombre,lineas,bio,instagram,avatar_url,activo').eq('id', id).single();
   S.miArtista = data; return data;
 }
 

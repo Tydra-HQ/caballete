@@ -119,7 +119,9 @@ async function vInicio() {
   const { artistas, obras } = await traerTodo();
   // carrusel: obras intercaladas por artista
   const porArt = {}; obras.forEach((o) => (porArt[o.artista_id] ||= []).push(o));
-  const listas = Object.values(porArt); const flip = [];
+  // si el artista destacó obras, solo esas entran en la portada y el carrusel; si no, todas
+  for (const k in porArt) { const d = porArt[k].filter((o) => o.portada); if (d.length) porArt[k] = d; }
+  const listas = Object.values(porArt).map(mezclar); const flip = [];
   for (let r = 0; flip.length < 14 && listas.some((l) => l[r]); r++) listas.forEach((l) => { if (l[r] && flip.length < 14) flip.push(l[r]); });
   // una obra de cada artista, en orden aleatorio
   const tarjetas = mezclar(artistas.filter((a) => porArt[a.id])).map((a) => {
@@ -164,7 +166,7 @@ async function vInicio() {
       <p style="margin:0;font-size:18px;line-height:1.65;color:#D8D0C2">Subí fotos de tus obras desde el celular y tené un catálogo propio, prolijo y fácil de compartir. Vos decidís qué mostrar y si publicar precios.</p>
       <ol class="pasos">
         <li><i>I</i><div><b>Subí tus obras</b><span>Foto, título, técnica, medidas y año.</span></div></li>
-        <li><i>II</i><div><b>Armá tu catálogo</b><span>Elegí la obra que te representa en la portada.</span></div></li>
+        <li><i>II</i><div><b>Armá tu catálogo</b><span>Destacá tus mejores obras para que aparezcan en la portada.</span></div></li>
         <li><i>III</i><div><b>Compartí y recibí consultas</b><span>Un link propio para redes, y precios visibles solo si querés.</span></div></li>
       </ol>
       <div><a class="btn btn-claro" href="#/subir">Crear mi catálogo</a></div>
@@ -369,7 +371,7 @@ async function vMi() {
   const a = await miArtista();
   if (!a) return vAlta();
   const [ro, rc, rp] = await Promise.all([
-    sb.from('obras').select('id,titulo,tecnica,imagen_url,miniatura_url,publicada,estado,precio_modo,moneda,creada').eq('artista_id', a.id).order('creada', { ascending: false }),
+    sb.from('obras').select('id,titulo,tecnica,imagen_url,miniatura_url,publicada,estado,precio_modo,moneda,portada,creada').eq('artista_id', a.id).order('creada', { ascending: false }),
     sb.from('consultas').select('*').eq('artista_id', a.id).order('creada', { ascending: false }).limit(50),
     sb.rpc('mis_precios')
   ]);
@@ -387,7 +389,7 @@ async function vMi() {
         <p style="margin:4px 0 0;white-space:pre-line">${esc(c.mensaje)}</p></div>`).join('') : '<p class="muted" style="margin:0">Todavía no recibiste consultas.</p>'}
     </div>
     <div class="caja"><h2>Mis obras <span class="muted" style="font-weight:400;font-size:15px">(${obras.length})</span></h2>
-      ${obras.length ? `<div class="grid-obras" style="grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:16px">${obras.map((o) => `<div class="mini"><a class="marco" href="#/o/${o.id}" style="padding:6px"><img src="${src(o.miniatura_url || o.imagen_url)}" alt="${esc(o.titulo)}"></a><b style="font-size:18px">${esc(o.titulo)}</b><span>${esc(o.estado)}</span><button class="btn btn-linea" type="button" data-borrar="${o.id}" style="min-height:40px;padding:0 12px;font-size:13px;color:var(--rojo);border-color:var(--borde)">Quitar</button></div>`).join('')}</div>` : '<p class="muted" style="margin:0">Todavía no subiste obras.</p>'}
+      ${obras.length ? `<div class="grid-obras" style="grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:16px">${obras.map((o) => `<div class="mini"><a class="marco" href="#/o/${o.id}" style="padding:6px"><img src="${src(o.miniatura_url || o.imagen_url)}" alt="${esc(o.titulo)}"></a><b style="font-size:18px">${esc(o.titulo)}</b><span>${esc(o.estado)}</span><button class="chip" type="button" data-destacar="${o.id}" aria-pressed="${!!o.portada}" style="min-height:40px">${o.portada ? '★ Destacada' : '☆ Destacar'}</button><button class="btn btn-linea" type="button" data-borrar="${o.id}" style="min-height:40px;padding:0 12px;font-size:13px;color:var(--rojo);border-color:var(--borde)">Quitar</button></div>`).join('')}</div>` : '<p class="muted" style="margin:0">Todavía no subiste obras.</p>'}
     </div>
     <div><button class="btn btn-linea" type="button" data-salir>Cerrar sesión</button></div>
   </section>`;
@@ -395,6 +397,15 @@ async function vMi() {
     if (!confirm('¿Quitar esta obra de tu catálogo? No se puede deshacer.')) return;
     const { error } = await sb.from('obras').delete().eq('id', b.dataset.borrar);
     if (error) return toast('No se pudo quitar'); toast('Obra quitada'); vMi();
+  });
+  $app.querySelectorAll('[data-destacar]').forEach((b) => b.onclick = async () => {
+    const on = b.getAttribute('aria-pressed') !== 'true';
+    b.disabled = true;
+    const { error } = await sb.from('obras').update({ portada: on }).eq('id', b.dataset.destacar);
+    b.disabled = false;
+    if (error) return toast('No se pudo cambiar');
+    b.setAttribute('aria-pressed', on); b.textContent = on ? '★ Destacada' : '☆ Destacar';
+    toast(on ? 'Obra destacada: aparece en la portada' : 'Ya no está destacada');
   });
   $app.querySelector('[data-salir]').onclick = async () => { await sb.auth.signOut(); S.miArtista = undefined; location.hash = '#/'; };
 }
@@ -449,7 +460,8 @@ async function vSubir() {
         <div class="g2" data-precio hidden><div class="f"><label class="l" for="mo">Moneda</label><select class="campo" id="mo"><option>ARS</option><option>USD</option></select></div><div class="f"><label class="l" for="pr">Precio</label><input class="campo" id="pr" type="number" inputmode="numeric" min="0"></div></div>
         <span class="l" id="es">Estado</span>
         <div class="seg" role="group" aria-labelledby="es" data-seg="estado"><button type="button" data-v="disponible">Disponible</button><button type="button" data-v="reservada">Reservada</button><button type="button" data-v="vendida">Vendida</button></div>
-        <label class="check"><input type="checkbox" id="po"> Usar como obra de portada en la página de artistas</label>
+        <label class="check"><input type="checkbox" id="po"> Destacar esta obra</label>
+        <span class="ayuda" style="margin-top:-10px">Las obras destacadas son las que aparecen en la portada de la galería y en el carrusel. Si no destacás ninguna, se elige al azar entre todas.</span>
       </div>
       <p class="error" data-err hidden></p>
       <div class="acciones"><button class="btn btn-verde" type="submit" data-pub>Publicar obra</button></div>
@@ -490,7 +502,6 @@ async function vSubir() {
       const pub = (p) => sb.storage.from(C.bucket).getPublicUrl(p).data.publicUrl;
       const v = (id) => $app.querySelector(id).value.trim();
       const portada = $app.querySelector('#po').checked;
-      if (portada) await sb.from('obras').update({ portada: false }).eq('artista_id', a.id);
       const fila = {
         artista_id: a.id, titulo: v('#ti'), tecnica: v('#te'), soporte: v('#so') || null,
         alto: v('#al') ? +v('#al') : null, ancho: v('#an') ? +v('#an') : null, anio: v('#yy') ? +v('#yy') : null,

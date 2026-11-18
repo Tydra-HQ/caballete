@@ -123,7 +123,8 @@ async function vInicio() {
   for (let r = 0; flip.length < 14 && listas.some((l) => l[r]); r++) listas.forEach((l) => { if (l[r] && flip.length < 14) flip.push(l[r]); });
   // una obra de cada artista, en orden aleatorio
   const tarjetas = mezclar(artistas.filter((a) => porArt[a.id])).map((a) => {
-    const o = porArt[a.id].find((x) => x.portada) || porArt[a.id][0];
+    const lista = porArt[a.id];
+    const o = lista[Math.floor(Math.random() * lista.length)]; // una obra cualquiera del artista, distinta en cada visita
     return `<a class="tarjeta" href="#/a/${esc(a.slug)}"><div class="marco"><img src="${src(o.miniatura_url || o.imagen_url)}" alt="${esc(o.titulo)}, de ${esc(a.nombre)}" loading="lazy"></div>
       <span class="nom">${esc(a.nombre)}</span><span class="lin">${esc(a.lineas || '')}</span><span class="ver">Ver catálogo ${ico.flecha}</span></a>`;
   }).join('');

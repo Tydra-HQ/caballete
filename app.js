@@ -201,7 +201,8 @@ async function vArtista(slug) {
   const ro = await sb.from('obras_publicas').select('*').eq('artista_id', a.id).order('creada', { ascending: false });
   if (ro.error) throw ro.error;
   const obras = ro.data; const pr = await precios(obras);
-  const tecnicas = [...new Set(obras.map((o) => (o.tecnica || '').split(' ')[0]).filter(Boolean))];
+  const grupo = (t) => (t || '').split(' sobre ')[0];
+  const tecnicas = [...new Set(obras.map((o) => grupo(o.tecnica)).filter(Boolean))];
   document.title = `${a.nombre} · Caballete`;
   $app.innerHTML = `
   <section class="wrap art-cab">
@@ -224,7 +225,7 @@ async function vArtista(slug) {
       <button class="chip" type="button" aria-pressed="true" data-f="">Todas</button>
       ${tecnicas.length > 1 ? tecnicas.map((t) => `<button class="chip" type="button" aria-pressed="false" data-f="${esc(t)}">${esc(t)}</button>`).join('') : ''}
     </div><span class="muted" data-cuenta>${obras.length} obras</span></div>
-    <div class="masonry">${obras.map((o) => `<a class="obra" href="#/o/${o.id}" data-tec="${esc((o.tecnica || '').split(' ')[0])}"><img src="${src(o.miniatura_url || o.imagen_url)}" alt="${esc(o.titulo)}" loading="lazy"><div class="pie"><div><b>${esc(o.titulo)}</b><small>${esc(ficha(o))}</small></div>${etiquetaPrecio(o, pr)}</div></a>`).join('') || '<p class="vacio">Todavía no hay obras publicadas.</p>'}</div>
+    <div class="masonry">${obras.map((o) => `<a class="obra" href="#/o/${o.id}" data-tec="${esc(grupo(o.tecnica))}"><img src="${src(o.miniatura_url || o.imagen_url)}" alt="${esc(o.titulo)}" loading="lazy"><div class="pie"><div><b>${esc(o.titulo)}</b><small>${esc(ficha(o))}</small></div>${etiquetaPrecio(o, pr)}</div></a>`).join('') || '<p class="vacio">Todavía no hay obras publicadas.</p>'}</div>
   </section>${pie()}`;
   $app.querySelectorAll('[data-f]').forEach((b) => b.onclick = () => {
     $app.querySelectorAll('[data-f]').forEach((x) => x.setAttribute('aria-pressed', x === b));

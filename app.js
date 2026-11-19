@@ -121,7 +121,7 @@ async function vInicio() {
   const porArt = {}; obras.forEach((o) => (porArt[o.artista_id] ||= []).push(o));
   // si el artista destacó obras, solo esas entran en la portada y el carrusel; si no, todas
   for (const k in porArt) { const d = porArt[k].filter((o) => o.portada); if (d.length) porArt[k] = d; }
-  const listas = Object.values(porArt).map(mezclar); const flip = [];
+  const listas = mezclar(Object.values(porArt).map(mezclar)); // orden de artistas y de obras al azar en cada visita const flip = [];
   for (let r = 0; flip.length < 14 && listas.some((l) => l[r]); r++) listas.forEach((l) => { if (l[r] && flip.length < 14) flip.push(l[r]); });
   // una obra de cada artista, en orden aleatorio
   const tarjetas = mezclar(artistas.filter((a) => porArt[a.id])).map((a) => {

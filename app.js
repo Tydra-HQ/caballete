@@ -197,7 +197,7 @@ async function vFavoritas() {
 
 async function vArtista(slug) {
   cargando();
-  const ra = await sb.from('artistas').select('id,user_id,slug,nombre,lineas,bio,instagram,avatar_url,activo').eq('slug', slug).maybeSingle();
+  const ra = await sb.from('artistas').select('id,user_id,slug,nombre,lineas,bio,instagram,avatar_url,activo,sitio_url').eq('slug', slug).maybeSingle();
   if (ra.error) throw ra.error;
   if (!ra.data) { $app.innerHTML = '<p class="wrap vacio">No encontramos a este artista.</p>'; return; }
   const a = ra.data;
@@ -217,6 +217,7 @@ async function vArtista(slug) {
       ${a.lineas ? `<p class="muted" style="margin:0;font-size:17px">${esc(a.lineas)}</p>` : ''}
       ${a.bio ? `<p style="margin:0;font-size:18px;line-height:1.65;color:var(--tinta2);max-width:620px">${esc(a.bio)}</p>` : ''}
       <div class="fila-acc">
+        ${a.sitio_url ? `<a class="btn btn-verde" href="${esc(a.sitio_url)}">Ir al sitio de ${esc(a.nombre)} →</a>` : ''}
         ${a.instagram ? `<a class="btn btn-linea" href="https://www.instagram.com/${esc(a.instagram)}/" target="_blank" rel="noopener">@${esc(a.instagram)}</a>` : ''}
         <button class="btn btn-negro" type="button" data-consultar>Contactar</button>
         <button class="btn btn-linea" type="button" data-compartir>Compartir</button>
@@ -396,6 +397,31 @@ async function montarAdmin() {
   });
 }
 
+async function montarComentarios(obras) {
+  const caja = $app.querySelector('[data-coms]'); if (!caja) return;
+  const ids = obras.map((o) => o.id);
+  if (!ids.length) { caja.innerHTML = '<p class="muted" style="margin:0">Todavía no hay comentarios.</p>'; return; }
+  const { data, error } = await sb.from('comentarios').select('id,obra_id,nombre,texto,oculto,creado').in('obra_id', ids).order('creado', { ascending: false }).limit(100);
+  if (error) { caja.innerHTML = '<p class="error">No se pudieron cargar.</p>'; return; }
+  const tit = Object.fromEntries(obras.map((o) => [o.id, o.titulo]));
+  caja.innerHTML = data.length ? data.map((c) => `<div style="border-top:1px solid var(--linea);padding:12px 0;display:flex;flex-direction:column;gap:4px;${c.oculto ? 'opacity:.55' : ''}">
+      <b>${esc(c.nombre)} <span class="muted" style="font-weight:400;font-size:13px">sobre «${esc(tit[c.obra_id] || '')}» · ${new Date(c.creado).toLocaleDateString('es-AR')}</span></b>
+      <p style="margin:0;white-space:pre-line">${esc(c.texto)}</p>
+      <div class="fila-acc"><button class="chip" type="button" data-ocultar="${c.id}" aria-pressed="${c.oculto}" style="min-height:40px">${c.oculto ? 'Volver a mostrar' : 'Ocultar'}</button>
+      <button class="chip" type="button" data-borrar-com="${c.id}" style="min-height:40px;color:var(--rojo)">Borrar</button></div></div>`).join('')
+    : '<p class="muted" style="margin:0">Todavía no hay comentarios.</p>';
+  caja.querySelectorAll('[data-ocultar]').forEach((b) => b.onclick = async () => {
+    const oc = b.getAttribute('aria-pressed') !== 'true';
+    const { error } = await sb.from('comentarios').update({ oculto: oc }).eq('id', b.dataset.ocultar);
+    if (error) return toast('No se pudo cambiar'); toast(oc ? 'Comentario oculto' : 'Comentario visible'); montarComentarios(obras);
+  });
+  caja.querySelectorAll('[data-borrar-com]').forEach((b) => b.onclick = async () => {
+    if (!confirm('¿Borrar este comentario? No se puede deshacer.')) return;
+    const { error } = await sb.from('comentarios').delete().eq('id', b.dataset.borrarCom);
+    if (error) return toast('No se pudo borrar'); toast('Comentario borrado'); montarComentarios(obras);
+  });
+}
+
 async function vMi() {
   if (!S.session) return vEntrar('#/mi');
   cargando();
@@ -432,10 +458,12 @@ async function vMi() {
     <div class="caja"><h2>Mis obras <span class="muted" style="font-weight:400;font-size:15px">(${obras.length})</span></h2>
       ${obras.length ? `<div class="grid-obras" style="grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:16px">${obras.map((o) => `<div class="mini"><a class="marco" href="#/o/${o.id}" style="padding:6px"><img src="${src(o.miniatura_url || o.imagen_url)}" alt="${esc(o.titulo)}"></a><b style="font-size:18px">${esc(o.titulo)}</b><span>${esc(o.estado)}</span><button class="chip" type="button" data-destacar="${o.id}" aria-pressed="${!!o.portada}" style="min-height:40px">${o.portada ? '★ Destacada' : '☆ Destacar'}</button><button class="btn btn-linea" type="button" data-borrar="${o.id}" style="min-height:40px;padding:0 12px;font-size:13px;color:var(--rojo);border-color:var(--borde)">Quitar</button></div>`).join('')}</div>` : '<p class="muted" style="margin:0">Todavía no subiste obras.</p>'}
     </div>
+    <div class="caja"><h2>Comentarios en tus obras</h2><div data-coms><p class="muted" style="margin:0">Cargando…</p></div></div>
     ${admin ? htmlAdmin() : ''}
     <div><button class="btn btn-linea" type="button" data-salir>Cerrar sesión</button></div>
   </section>`;
   if (admin) montarAdmin();
+  montarComentarios(obras);
   $app.querySelectorAll('[data-borrar]').forEach((b) => b.onclick = async () => {
     if (!confirm('¿Quitar esta obra de tu catálogo? No se puede deshacer.')) return;
     const { error } = await sb.from('obras').delete().eq('id', b.dataset.borrar);

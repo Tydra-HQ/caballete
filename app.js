@@ -5,7 +5,7 @@
 const C = window.CABALLETE;
 const sb = supabase.createClient(C.url, C.key, { auth: { flowType: 'pkce', detectSessionInUrl: true, persistSession: true } });
 const $app = document.getElementById('app');
-const S = { session: null, miArtista: undefined };
+const S = { session: null, miArtista: undefined, admin: undefined };
 
 /* ---------- utilidades ---------- */
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -57,7 +57,7 @@ function fallo(e) { console.error(e); $app.innerHTML = `<div class="wrap vacio">
 /* ---------- datos ---------- */
 async function traerTodo() {
   const [a, o] = await Promise.all([
-    sb.from('artistas').select('id,slug,nombre,lineas,avatar_url').eq('activo', true),
+    sb.from('artistas').select('id,slug,nombre,lineas,avatar_url,activo'),
     sb.from('obras_publicas').select('*').order('creada', { ascending: false })
   ]);
   if (a.error) throw a.error; if (o.error) throw o.error;
@@ -128,7 +128,7 @@ async function vInicio() {
     const lista = porArt[a.id];
     const o = lista[Math.floor(Math.random() * lista.length)]; // una obra cualquiera del artista, distinta en cada visita
     return `<a class="tarjeta" href="#/a/${esc(a.slug)}"><div class="marco"><img src="${src(o.miniatura_url || o.imagen_url)}" alt="${esc(o.titulo)}, de ${esc(a.nombre)}" loading="lazy"></div>
-      <span class="nom">${esc(a.nombre)}</span><span class="lin">${esc(a.lineas || '')}</span><span class="ver">Ver catálogo ${ico.flecha}</span></a>`;
+      <span class="nom">${esc(a.nombre)}</span>${a.activo === false ? '<span class="oculto">Oculto al público</span>' : ''}<span class="lin">${esc(a.lineas || '')}</span><span class="ver">Ver catálogo ${ico.flecha}</span></a>`;
   }).join('');
   const recientes = obras.slice(0, 8).map(cardMini).join('');
   $app.innerHTML = `
@@ -211,6 +211,7 @@ async function vArtista(slug) {
   <section class="wrap art-cab">
     <div class="txt">
       <a href="#/" style="font-size:14px;text-decoration:none">← Todos los artistas</a>
+      ${a.activo === false ? '<p class="aviso-oculto">Este catálogo está <b>oculto al público</b>. Lo ves porque sos administrador/a.</p>' : ''}
       <span class="ceja">Catálogo de artista</span>
       <h1>${esc(a.nombre)}</h1>
       ${a.lineas ? `<p class="muted" style="margin:0;font-size:17px">${esc(a.lineas)}</p>` : ''}
@@ -365,10 +366,50 @@ function vAlta() {
   };
 }
 
+async function esAdmin() {
+  if (!S.session) return false;
+  if (S.admin === undefined) { const { data } = await sb.rpc('es_admin'); S.admin = data === true; }
+  return S.admin;
+}
+function htmlAdmin() {
+  return `<div class="caja" data-admin><h2>Administración</h2>
+    <p class="muted" style="margin:0">Los artistas ocultos no aparecen para el público: solo los ven los administradores.</p>
+    <div data-admin-lista><p class="muted" style="margin:0">Cargando artistas…</p></div></div>`;
+}
+async function montarAdmin() {
+  const caja = $app.querySelector('[data-admin-lista]'); if (!caja) return;
+  const { data, error } = await sb.from('artistas').select('id,slug,nombre,activo').order('nombre');
+  if (error) { caja.innerHTML = '<p class="error">No se pudo cargar la lista.</p>'; return; }
+  caja.innerHTML = data.map((a) => `<div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:12px;border-top:1px solid var(--linea);padding:12px 0">
+      <a href="#/a/${esc(a.slug)}" style="font-family:var(--serif);font-size:22px;text-decoration:none;color:var(--tinta)">${esc(a.nombre)}</a>
+      <button class="chip" type="button" data-activo="${a.id}" aria-pressed="${a.activo}">${a.activo ? '● Visible al público' : '○ Oculto'}</button></div>`).join('');
+  caja.querySelectorAll('[data-activo]').forEach((b) => b.onclick = async () => {
+    const on = b.getAttribute('aria-pressed') !== 'true';
+    const nombre = b.parentElement.querySelector('a').textContent;
+    if (!confirm(on ? `¿Mostrar a ${nombre} al público?` : `¿Ocultar a ${nombre} del público?`)) return;
+    b.disabled = true;
+    const { error } = await sb.from('artistas').update({ activo: on }).eq('id', b.dataset.activo);
+    b.disabled = false;
+    if (error) return toast('No se pudo cambiar');
+    b.setAttribute('aria-pressed', on); b.textContent = on ? '● Visible al público' : '○ Oculto';
+    toast(on ? `${nombre} ya es visible para todos` : `${nombre} quedó oculto al público`);
+  });
+}
+
 async function vMi() {
   if (!S.session) return vEntrar('#/mi');
   cargando();
-  const a = await miArtista();
+  const [a, admin] = await Promise.all([miArtista(), esAdmin()]);
+  if (!a && admin) {
+    $app.innerHTML = `<section class="wrap form-wrap" style="max-width:960px">
+      <span class="ceja">Administración</span><h1 style="font-size:52px">Caballete</h1>
+      ${htmlAdmin()}
+      <p class="muted" style="margin:0">Si además querés publicar obras propias, <a href="#/mi" data-alta>creá tu perfil de artista</a>.</p>
+      <div><button class="btn btn-linea" type="button" data-salir>Cerrar sesión</button></div></section>`;
+    $app.querySelector('[data-alta]').onclick = (e) => { e.preventDefault(); vAlta(); };
+    $app.querySelector('[data-salir]').onclick = async () => { await sb.auth.signOut(); S.miArtista = undefined; S.admin = undefined; location.hash = '#/'; };
+    return montarAdmin();
+  }
   if (!a) return vAlta();
   const [ro, rc, rp] = await Promise.all([
     sb.from('obras').select('id,titulo,tecnica,imagen_url,miniatura_url,publicada,estado,precio_modo,moneda,portada,creada').eq('artista_id', a.id).order('creada', { ascending: false }),
@@ -391,8 +432,10 @@ async function vMi() {
     <div class="caja"><h2>Mis obras <span class="muted" style="font-weight:400;font-size:15px">(${obras.length})</span></h2>
       ${obras.length ? `<div class="grid-obras" style="grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:16px">${obras.map((o) => `<div class="mini"><a class="marco" href="#/o/${o.id}" style="padding:6px"><img src="${src(o.miniatura_url || o.imagen_url)}" alt="${esc(o.titulo)}"></a><b style="font-size:18px">${esc(o.titulo)}</b><span>${esc(o.estado)}</span><button class="chip" type="button" data-destacar="${o.id}" aria-pressed="${!!o.portada}" style="min-height:40px">${o.portada ? '★ Destacada' : '☆ Destacar'}</button><button class="btn btn-linea" type="button" data-borrar="${o.id}" style="min-height:40px;padding:0 12px;font-size:13px;color:var(--rojo);border-color:var(--borde)">Quitar</button></div>`).join('')}</div>` : '<p class="muted" style="margin:0">Todavía no subiste obras.</p>'}
     </div>
+    ${admin ? htmlAdmin() : ''}
     <div><button class="btn btn-linea" type="button" data-salir>Cerrar sesión</button></div>
   </section>`;
+  if (admin) montarAdmin();
   $app.querySelectorAll('[data-borrar]').forEach((b) => b.onclick = async () => {
     if (!confirm('¿Quitar esta obra de tu catálogo? No se puede deshacer.')) return;
     const { error } = await sb.from('obras').delete().eq('id', b.dataset.borrar);
@@ -407,7 +450,7 @@ async function vMi() {
     b.setAttribute('aria-pressed', on); b.textContent = on ? '★ Destacada' : '☆ Destacar';
     toast(on ? 'Obra destacada: aparece en la portada' : 'Ya no está destacada');
   });
-  $app.querySelector('[data-salir]').onclick = async () => { await sb.auth.signOut(); S.miArtista = undefined; location.hash = '#/'; };
+  $app.querySelector('[data-salir]').onclick = async () => { await sb.auth.signOut(); S.miArtista = undefined; S.admin = undefined; location.hash = '#/'; };
 }
 
 /* ---------- subir obra ---------- */
@@ -553,7 +596,7 @@ function navSesion() { document.getElementById('nav-mi').textContent = S.session
   if (new URLSearchParams(location.search).has('code') || location.search.includes('error')) {
     history.replaceState(null, '', location.pathname + (sessionStorage.getItem('cab-destino') || '#/mi'));
   }
-  sb.auth.onAuthStateChange((_ev, ses) => { const antes = !!S.session; S.session = ses; if (!ses) S.miArtista = undefined; navSesion(); if (antes !== !!ses && /^#\/(mi|subir)$/.test(location.hash)) router(); });
+  sb.auth.onAuthStateChange((_ev, ses) => { const antes = !!S.session; S.session = ses; if (!ses) { S.miArtista = undefined; S.admin = undefined; } navSesion(); if (antes !== !!ses && /^#\/(mi|subir)$/.test(location.hash)) router(); });
   addEventListener('hashchange', router);
   router();
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
